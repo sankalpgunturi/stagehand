@@ -18,6 +18,7 @@ export interface ConstructorParams {
   domSettleTimeoutMs?: number;
   browserbaseSessionCreateParams?: Browserbase.Sessions.SessionCreateParams;
   enableCaching?: boolean;
+  enableRecording?: boolean;
   browserbaseSessionID?: string;
   modelName?: AvailableModel;
   llmClient?: LLMClient;
@@ -93,4 +94,13 @@ export interface ObserveOptions {
 export interface ObserveResult {
   selector: string;
   description: string;
+}
+
+export interface DumpRecordedActionsCodeOptions {
+  language: "typescript" | "python";
+  testFramework: "playwright" | "puppeteer" | "cypress";
+}
+
+export interface DumpRecordedActionsCodeResult {
+  code: string;
 }

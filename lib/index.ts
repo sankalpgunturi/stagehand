@@ -14,6 +14,8 @@ import {
   ActOptions,
   ActResult,
   ConstructorParams,
+  DumpRecordedActionsCodeOptions,
+  DumpRecordedActionsCodeResult,
   ExtractOptions,
   ExtractResult,
   InitFromPageOptions,
@@ -316,6 +318,7 @@ export class Stagehand {
   public readonly headless: boolean;
   public verbose: 0 | 1 | 2;
   public llmProvider: LLMProvider;
+  public enableRecording: boolean;
   public enableCaching: boolean;
 
   private apiKey: string | undefined;
@@ -342,6 +345,7 @@ export class Stagehand {
       browserbaseSessionCreateParams,
       domSettleTimeoutMs,
       enableCaching,
+      enableRecording,
       browserbaseSessionID,
       modelName,
       modelClientOptions,
@@ -354,6 +358,9 @@ export class Stagehand {
     this.enableCaching =
       enableCaching ??
       (process.env.ENABLE_CACHING && process.env.ENABLE_CACHING === "true");
+    this.enableRecording =
+      enableRecording ??
+      (process.env.ENABLE_RECORDING && process.env.ENABLE_RECORDING === "true");
     this.llmProvider =
       llmProvider || new LLMProvider(this.logger, this.enableCaching);
     this.intEnv = env;
@@ -617,6 +624,12 @@ export class Stagehand {
         console.error("Error deleting context directory:", e);
       }
     }
+  }
+
+  async dumpRecordedActionsCode(
+    options: DumpRecordedActionsCodeOptions,
+  ): Promise<DumpRecordedActionsCodeResult> {
+    return await this.stagehandPage.dumpRecordedActionsCode(options);
   }
 }
 

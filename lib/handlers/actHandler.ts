@@ -5,6 +5,7 @@ import {
   PlaywrightCommandMethodNotSupportedException,
 } from "../../types/playwright";
 import { ActionCache } from "../cache/ActionCache";
+import { ActionRecorder } from "../cache/ActionRecorder";
 import { act, fillInVariables, verifyActCompletion } from "../inference";
 import { LLMClient } from "../llm/LLMClient";
 import { LLMProvider } from "../llm/LLMProvider";
@@ -12,14 +13,19 @@ import { StagehandContext } from "../StagehandContext";
 import { StagehandPage } from "../StagehandPage";
 import { generateId } from "../utils";
 import { ScreenshotService } from "../vision";
+import { DumpRecordedActionsCodeOptions } from "../../types/stagehand";
+import { DumpRecordedActionsCodeResult } from "../../types/stagehand";
+import { TestCodeGenerator } from "./testCodeGenerator";
 
 export class StagehandActHandler {
   private readonly stagehandPage: StagehandPage;
   private readonly verbose: 0 | 1 | 2;
   private readonly llmProvider: LLMProvider;
   private readonly enableCaching: boolean;
+  private readonly enableRecording: boolean;
   private readonly logger: (logLine: LogLine) => void;
   private readonly actionCache: ActionCache | undefined;
+  private readonly actionRecorder: ActionRecorder | undefined;
   private readonly actions: {
     [key: string]: { result: string; action: string };
   };
@@ -29,6 +35,7 @@ export class StagehandActHandler {
     verbose,
     llmProvider,
     enableCaching,
+    enableRecording,
     logger,
     stagehandPage,
     userProvidedInstructions,
@@ -36,6 +43,7 @@ export class StagehandActHandler {
     verbose: 0 | 1 | 2;
     llmProvider: LLMProvider;
     enableCaching: boolean;
+    enableRecording: boolean;
     logger: (logLine: LogLine) => void;
     llmClient: LLMClient;
     stagehandPage: StagehandPage;
@@ -45,8 +53,12 @@ export class StagehandActHandler {
     this.verbose = verbose;
     this.llmProvider = llmProvider;
     this.enableCaching = enableCaching;
+    this.enableRecording = enableRecording;
     this.logger = logger;
     this.actionCache = enableCaching ? new ActionCache(this.logger) : undefined;
+    this.actionRecorder = enableRecording
+      ? new ActionRecorder(this.logger)
+      : undefined;
     this.actions = {};
     this.stagehandPage = stagehandPage;
     this.userProvidedInstructions = userProvidedInstructions;
@@ -881,6 +893,18 @@ export class StagehandActHandler {
         domSettleTimeoutMs,
       );
 
+      this._recordActionIfEnabled({
+        url: this.stagehandPage.page.url(),
+        action,
+        previousSelectors: [],
+        playwrightCommand: cachedStep.playwrightCommand,
+        componentString: cachedStep.componentString,
+        xpaths: [validXpath],
+        newStepString: cachedStep.newStepString,
+        completed: cachedStep.completed,
+        requestId,
+      });
+
       steps = steps + cachedStep.newStepString;
       await this.stagehandPage.page.evaluate(
         ({ chunksSeen }: { chunksSeen: number[] }) => {
@@ -956,6 +980,52 @@ export class StagehandActHandler {
       await this.actionCache?.removeActionStep(cacheObj);
       return null;
     }
+  }
+
+  private async _recordActionIfEnabled({
+    url,
+    action,
+    previousSelectors,
+    playwrightCommand,
+    componentString,
+    xpaths,
+    newStepString,
+    completed,
+    requestId,
+  }: {
+    url: string;
+    action: string;
+    previousSelectors: string[];
+    playwrightCommand: {
+      method: string;
+      args: string[];
+    };
+    componentString: string;
+    xpaths: string[];
+    newStepString: string;
+    completed: boolean;
+    requestId: string;
+  }) {
+    this.logger({
+      category: "action",
+      message: "recording action, enableRecording is " + this.enableRecording,
+      level: 1,
+    });
+    if (!this.enableRecording) {
+      return;
+    }
+
+    await this.actionRecorder?.addActionStep({
+      url,
+      action,
+      previousSelectors,
+      playwrightCommand,
+      componentString,
+      xpaths,
+      newStepString,
+      completed,
+      requestId,
+    });
   }
 
   public async act({
@@ -1335,40 +1405,42 @@ export class StagehandActHandler {
 
         steps += newStepString;
 
+        const cacheRecord = {
+          action,
+          url: originalUrl,
+          previousSelectors,
+          playwrightCommand: {
+            method,
+            args: responseArgs.map((arg) => arg?.toString() || ""),
+          },
+          componentString,
+          requestId,
+          xpaths,
+          newStepString,
+          completed: response.completed,
+        };
+
         if (this.enableCaching) {
-          this.actionCache
-            .addActionStep({
-              action,
-              url: originalUrl,
-              previousSelectors,
-              playwrightCommand: {
-                method,
-                args: responseArgs.map((arg) => arg?.toString() || ""),
-              },
-              componentString,
-              requestId,
-              xpaths,
-              newStepString,
-              completed: response.completed,
-            })
-            .catch((e) => {
-              this.logger({
-                category: "action",
-                message: "error adding action step to cache",
-                level: 1,
-                auxiliary: {
-                  error: {
-                    value: e.message,
-                    type: "string",
-                  },
-                  trace: {
-                    value: e.stack,
-                    type: "string",
-                  },
+          this.actionCache.addActionStep(cacheRecord).catch((e) => {
+            this.logger({
+              category: "action",
+              message: "error adding action step to cache",
+              level: 1,
+              auxiliary: {
+                error: {
+                  value: e.message,
+                  type: "string",
                 },
-              });
+                trace: {
+                  value: e.stack,
+                  type: "string",
+                },
+              },
             });
+          });
         }
+
+        this._recordActionIfEnabled(cacheRecord);
 
         if (this.stagehandPage.page.url() !== initialUrl) {
           steps += `  Result (Important): Page URL changed from ${initialUrl} to ${this.stagehandPage.page.url()}\n\n`;
@@ -1514,5 +1586,21 @@ export class StagehandActHandler {
         action: action,
       };
     }
+  }
+
+  async dumpRecordedActionsCode(
+    options: DumpRecordedActionsCodeOptions,
+  ): Promise<DumpRecordedActionsCodeResult> {
+    const generator = new TestCodeGenerator({
+      actionRecorder: this.actionRecorder,
+      logger: this.logger,
+      llmProvider: this.llmProvider,
+    });
+
+    const code = await generator.generateCode(
+      options.language,
+      options.testFramework,
+    );
+    return { code };
   }
 }

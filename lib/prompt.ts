@@ -388,3 +388,60 @@ export function buildObserveUserMessage(
 ${isUsingAccessibilityTree ? "Accessibility Tree" : "DOM"}: ${domElements}`,
   };
 }
+
+// code conversion
+export function buildCodeConverterSystemPrompt(): ChatMessage {
+  return {
+    role: "system",
+    content: `You are a code converter. You will be given Playwright code and asked to convert it to a different framework. You will return the converted code in the same language as the input code.
+
+      IMPORTANT:
+      - You will NOT preface the code with any text.
+      - You will NOT give any explanation of the code.
+      - You WILL ONLY return the requested code.
+      
+      For example, if we are converting to cypress in typescript and the input code is:
+
+      """
+      import { chromium } from 'playwright';
+
+      (async () => {
+        const browser = await chromium.launch({ headless: false });
+        const context = await browser.newContext();
+        const page = await context.newPage();
+
+        await page.goto('https://ovolve.github.io/2048-AI/');
+
+        await page.keyboard.press('ArrowLeft');
+
+        await context.close();
+        await browser.close();
+      })();
+      """
+      
+      The output should be:
+      
+      """
+      describe('2048 Game Test', () => {
+        it('should press the left arrow key', () => {
+          // Visit the 2048 game page
+          cy.visit('https://ovolve.github.io/2048-AI/');
+
+          // Press the left arrow key
+          cy.get('body').trigger('keydown', { keyCode: 37 });
+        });
+      });
+      """
+      `,
+  };
+}
+
+export function buildCodeConverterUserPrompt(
+  playwrightCode: string,
+  targetFramework: string,
+): ChatMessage {
+  return {
+    role: "user",
+    content: `Convert the following Playwright code to ${targetFramework}: \n\`\`\`\n${playwrightCode}\n\`\`\`. Return ONLY the converted code, no other text or comments.`,
+  };
+}

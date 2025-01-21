@@ -21,6 +21,8 @@ import {
   buildRefineUserPrompt,
   buildVerifyActCompletionSystemPrompt,
   buildVerifyActCompletionUserPrompt,
+  buildCodeConverterSystemPrompt,
+  buildCodeConverterUserPrompt,
 } from "./prompt";
 
 export async function verifyActCompletion({
@@ -358,4 +360,26 @@ export async function observe({
   } satisfies { elements: { elementId: number; description: string }[] };
 
   return parsedResponse;
+}
+
+export async function convertPlaywrightCodeToFramework(
+  playwrightCode: string,
+  targetFramework: string,
+  llmClient: LLMClient,
+  requestId: string,
+  logger: (message: LogLine) => void,
+) {
+  const response = await llmClient.createChatCompletion({
+    options: {
+      messages: [
+        buildCodeConverterSystemPrompt(),
+        buildCodeConverterUserPrompt(playwrightCode, targetFramework),
+      ],
+      temperature: 0.1,
+      requestId,
+    },
+    logger,
+  });
+
+  return response.choices[0].message.content || "";
 }

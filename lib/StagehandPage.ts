@@ -9,6 +9,8 @@ import { StagehandActHandler } from "./handlers/actHandler";
 import { StagehandContext } from "./StagehandContext";
 import { Page } from "../types/page";
 import {
+  DumpRecordedActionsCodeOptions,
+  DumpRecordedActionsCodeResult,
   ExtractOptions,
   ExtractResult,
   ObserveOptions,
@@ -65,6 +67,7 @@ export class StagehandPage {
         verbose: this.stagehand.verbose,
         llmProvider: this.stagehand.llmProvider,
         enableCaching: this.stagehand.enableCaching,
+        enableRecording: this.stagehand.enableRecording,
         logger: this.stagehand.logger,
         stagehandPage: this,
         stagehandContext: this.intContext,
@@ -359,6 +362,16 @@ export class StagehandPage {
           action: action,
         };
       });
+  }
+
+  async dumpRecordedActionsCode(
+    options: DumpRecordedActionsCodeOptions,
+  ): Promise<DumpRecordedActionsCodeResult> {
+    if (!this.actHandler) {
+      throw new Error("Act handler not initialized");
+    }
+
+    return this.actHandler.dumpRecordedActionsCode(options);
   }
 
   async extract<T extends z.AnyZodObject>({
